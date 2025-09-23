@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:test7/screens/home/widgets/map_view.dart';
@@ -16,6 +17,9 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
+  // final user = FirebaseAuth.instance.currentUser;
+  User? _currentUser;
+  StreamSubscription<User?>? _authStateSubscription;
   String _statusMessage = 'Checking Location...';
   Position? _currentPosition;
 
@@ -60,7 +64,21 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((User? user) {
+      print("MyHomePage AuthStateChanged: UserId: ${user?.uid}, DisplayName: ${user?.displayName}");
+      if (mounted) {
+        setState(() {
+          _currentUser = user;
+        });
+      }
+    });
     _initLocationFlow();
+  }
+
+  @override
+  void dispose() {
+    _authStateSubscription?.cancel();
+    super.dispose();
   }
 
   bool isInsideGeofence(Position userPosition, Geofence geofence) {
@@ -79,7 +97,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     for (var fence in geoFences) {
       if (isInsideGeofence(userPosition, fence)) {
         setState(() {
-          _statusMessage = "You're in ${fence.name} \n Lat: ${fence.latitude} \n Lon: ${fence.longitude}";
+          _statusMessage =
+              "You're in ${fence.name} \n Lat: ${fence.latitude} \n Lon: ${fence.longitude}";
         });
         found = true;
         break;
@@ -110,6 +129,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
+          // IconButton(
+          //   icon: const Icon(Icons.logout),
+          //   onPressed: () async {
+          //     await FirebaseAuth.instance.signOut();
+          //     Navigator.pushReplacementNamed(context, '/login');
+          //   },
+          // ),
         ],
       ),
       extendBodyBehindAppBar: true,
@@ -131,6 +157,24 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 //   userLatitude: _currentPosition?.latitude,
                 //   userLongitude: _currentPosition?.longitude,
                 // ),
+                if (_currentUser?.photoURL != null)
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundImage: NetworkImage(_currentUser!.photoURL!),
+                  ),
+                const SizedBox(height: 16),
+                Text(
+                  "Good Day, ${_currentUser?.displayName ?? (_currentUser != null ? _currentUser?.email : 'Guest')}",
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _currentUser?.email ?? "Not Logged In",
+                  style: const TextStyle(fontSize: 16, color: Colors.grey),
+                ),
                 const SizedBox(height: 20),
                 Text(
                   _statusMessage,
@@ -179,7 +223,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
     try {
       LocationSettings settings = const LocationSettings(
-        accuracy: LocationAccuracy.high,// distanceFilter: 0, // optional: only if you want to restrict updates
+        accuracy: LocationAccuracy
+            .high, // distanceFilter: 0, // optional: only if you want to restrict updates
       );
 
       Position position = await Geolocator.getCurrentPosition(

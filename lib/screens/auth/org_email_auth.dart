@@ -1,4 +1,6 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:test7/screens/home/home.dart';
 
 class EmailLoginPage extends StatefulWidget {
@@ -9,36 +11,134 @@ class EmailLoginPage extends StatefulWidget {
 }
 
 class _EmailLoginPageState extends State<EmailLoginPage> {
-  final _formKey = GlobalKey<FormState>();
   final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
   bool _isPasswordVisible = false;
+  bool _isLoading = false;
+  String? _errorMessage;
+  User? _user;
+  bool _initialized = false;
 
   @override
   void dispose() {
     _emailController.dispose();
-    _passwordController.dispose();
     super.dispose();
   }
 
-  void _loginUser() {
-    Navigator.push(context, MaterialPageRoute(builder: (context) => const MyHomePage(title: 'Logged in - Org Email')));
-    if (_formKey.currentState?.validate() ?? false) {
-      // Form is valid, proceed with login
-      String email = _emailController.text;
-      String password = _passwordController.text;
+  Future<void> _initializeGoogleSignIn() async {
+    try {
+      await GoogleSignIn.instance.initialize();
+      _initialized = true;
+    } catch (e) {
+      print('GoogleSignIn initialize error: $e');
+      // you may want to handle this
+    }
+  }
 
-      // TODO: Implement your actual email/password login logic here
-      // e.g., call an authentication service
-      print('Email: $email, Password: $password');
+  Future<void> _loginWithGoogle() async {
+    // Navigator.push(context, MaterialPageRoute(builder: (context) => const MyHomePage(title: 'Logged in - Org Email')));
+    String email = _emailController.text.trim().toLowerCase();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Logging in with Email: $email')),
+    if (email.isEmpty) {
+      setState(() => _errorMessage = "Please enter your org email");
+      return;
+    }
+    if (!email.endsWith("@karmagroup.com")) {
+      setState(() => _errorMessage = "This is not an org. email");
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Logging in with Email: $email')));
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    if (!_initialized) {
+      await _initializeGoogleSignIn();
+    }
+
+    try {
+      print('Attempting Google Sign-In with e-mail: $email');
+      // const List<String> scopes = ['email'];
+
+      final googleUser = await GoogleSignIn.instance.authenticate(
+        scopeHint: ['email'],
       );
 
-      // Example: After successful login, navigate to the main app screen
-      // Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => YourMainAppScreen()));
+      if (googleUser == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Sign-In cancelled or failed.";
+        });
+        return;
+      }
+
+      if (googleUser.email.toLowerCase() != email) {
+        await GoogleSignIn.instance.signOut();
+        setState(() {
+          _isLoading = false;
+          _errorMessage =
+              "Selected Google account does not match entered email.";
+        });
+        return;
+      }
+
+      final googleAuth = await googleUser.authentication;
+      if (googleAuth.idToken == null) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = "Failed to get Google ID Token.";
+        });
+        print("Google ID Token is null.");
+        return;
+      }
+
+      final credential = GoogleAuthProvider.credential(
+        idToken: googleAuth.idToken,
+      );
+
+      print("Attempting FirebaseAuth.instance.signInWithCredential...");
+      final userCredential = await FirebaseAuth.instance.signInWithCredential(
+        credential,
+      );
+
+      print(
+        "FirebaseAuth signInWithCredential SUCCESS. User UID: ${userCredential.user?.uid}",
+      );
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _user = userCredential.user;
+        });
+
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => MyHomePage(title: 'Google Auth Success'),
+          ),
+        );
+      }
+    } catch (e) {
+      print("Error during Firebase signInWithCredential: $e");
+      if(mounted){
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString();
+        });
+      }
     }
+  }
+
+  Future<void> _logOut() async {
+    await FirebaseAuth.instance.signOut();
+    await GoogleSignIn.instance.signOut();
+    setState(() {
+      _user = null;
+      _isLoading = false;
+    });
   }
 
   @override
@@ -59,169 +159,124 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Colors.teal.shade900,
-              Colors.grey.shade900,
-            ],
+            colors: [Colors.teal.shade900, Colors.grey.shade900],
           ),
         ),
-        child: Center(
-          child: SingleChildScrollView( // To prevent overflow if keyboard appears
-            padding: const EdgeInsets.all(24.0),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  // Optional: App Logo
-                  // Image.asset('assets/app_logo.png', height: 80),
-                  // const SizedBox(height: 32),
-
-                  const Text(
-                    'Welcome Back!',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Enter your credentials to continue',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white70,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-
-                  // Email TextField
-                  TextFormField(
-                    controller: _emailController,
-                    keyboardType: TextInputType.emailAddress,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Email Address',
-                      labelStyle: TextStyle(color: Colors.tealAccent.withOpacity(0.7)),
-                      hintText: 'you@example.com',
-                      hintStyle: TextStyle(color: Colors.white38),
-                      prefixIcon: Icon(Icons.email_outlined, color: Colors.tealAccent),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.tealAccent.withOpacity(0.5)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.tealAccent.withOpacity(0.5)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.tealAccent, width: 2),
-                      ),
-                      errorStyle: const TextStyle(color: Colors.redAccent),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your email';
-                      }
-                      if (!RegExp(r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@[a-zA-Z0-9]+\.[a-zA-Z]+").hasMatch(value)) {
-                        return 'Please enter a valid email address';
-                      }
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 20),
-
-                  // Password TextField
-                  TextFormField(
-                    controller: _passwordController,
-                    obscureText: !_isPasswordVisible,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      labelStyle: TextStyle(color: Colors.tealAccent.withOpacity(0.7)),
-                      hintText: 'Enter your password',
-                      hintStyle: TextStyle(color: Colors.white38),
-                      prefixIcon: Icon(Icons.lock_outline, color: Colors.tealAccent),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _isPasswordVisible ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                          color: Colors.tealAccent.withOpacity(0.7),
+        child: _isLoading
+            ? const CircularProgressIndicator()
+            : _user == null
+            ? Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      const Text(
+                        'Welcome!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
-                        onPressed: () {
-                          setState(() {
-                            _isPasswordVisible = !_isPasswordVisible;
-                          });
-                        },
                       ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.tealAccent.withOpacity(0.5)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Enter your credentials to continue',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 16, color: Colors.white70),
                       ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: Colors.tealAccent.withOpacity(0.5)),
+                      const SizedBox(height: 40),
+
+                      // Email TextField
+                      TextField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          labelText: 'Email Address',
+                          labelStyle: TextStyle(
+                            color: Colors.tealAccent.withOpacity(0.7),
+                          ),
+                          hintText: 'you.example@karmagroup.com',
+                          hintStyle: TextStyle(color: Colors.white38),
+                          prefixIcon: Icon(
+                            Icons.email_outlined,
+                            color: Colors.tealAccent,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: Colors.tealAccent.withOpacity(0.5),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: Colors.tealAccent.withOpacity(0.5),
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: Colors.tealAccent,
+                              width: 2,
+                            ),
+                          ),
+                          errorStyle: const TextStyle(color: Colors.redAccent),
+                        ),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: Colors.tealAccent, width: 2),
+                      const SizedBox(height: 24),
+
+                      // Login Button
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.tealAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        onPressed: _loginWithGoogle,
+                        child: const Text(
+                          'Login',
+                          style: TextStyle(color: Colors.black87),
+                        ),
                       ),
-                      errorStyle: const TextStyle(color: Colors.redAccent),
-                    ),
-                    validator: (value) {
-                      if (value == null || value.isEmpty) {
-                        return 'Please enter your password';
-                      }
-                      if (value.length < 6) {
-                        return 'Password must be at least 6 characters';
-                      }
-                      return null;
-                    },
+
+                      if (_errorMessage != null) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          _errorMessage!,
+                          style: const TextStyle(color: Colors.red),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ],
                   ),
-
-                  // Optional: Forgot Password
-                  /*
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton(
-                      onPressed: () {
-                        // TODO: Navigate to Forgot Password Page
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Forgot Password Tapped')),
-                        );
-                      },
-                      child: const Text(
-                        'Forgot Password?',
-                        style: TextStyle(color: Colors.tealAccent, fontSize: 14),
-                      ),
-                    ),
-                  ),*/
+                ),
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    "Welcome, ${_user!.displayName}",
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                  Text(_user!.email ?? ""),
                   const SizedBox(height: 24),
-
-                  // Login Button
                   ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.tealAccent,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    onPressed: _loginUser,
-                    child: const Text('Login', style: TextStyle(color: Colors.black87)),
+                    onPressed: _logOut,
+                    child: const Text("Sign Out"),
                   ),
                 ],
               ),
-            ),
-          ),
-        ),
       ),
     );
   }
 }
-

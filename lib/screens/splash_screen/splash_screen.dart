@@ -1,8 +1,10 @@
 // lib/splash_screen.dartimport 'dart:async';
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:test7/screens/auth/auth_options.dart';
+import 'package:test7/screens/home/home.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -12,16 +14,25 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  final user = FirebaseAuth.instance.currentUser;
+  
   @override
   void initState() {
     super.initState();
-    // Navigate to the main screen after a delay
     Timer(const Duration(seconds: 5), () {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => const LoginOptionsPage(),
-        ),
-      );
+      if (user != null) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const MyHomePage(title: "Already logged In"),
+          ),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => const LoginOptionsPage(),
+          ),
+        );
+      }
     });
   }
 
