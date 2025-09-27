@@ -3,14 +3,16 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:test7/screens/home/widgets/map_view.dart';
 
 import '../../models/geofence.dart';
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({super.key, required this.title, this.employeeData});
 
   final String title;
+  final Map<String, dynamic>? employeeData;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -22,6 +24,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   StreamSubscription<User?>? _authStateSubscription;
   String _statusMessage = 'Checking Location...';
   Position? _currentPosition;
+  String? employeeId;
+  String? employeeName;
 
   List<Geofence> geoFences = [
     Geofence(
@@ -64,8 +68,12 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-    _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((User? user) {
-      print("MyHomePage AuthStateChanged: UserId: ${user?.uid}, DisplayName: ${user?.displayName}");
+    _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((
+      User? user,
+    ) {
+      print(
+        "MyHomePage AuthStateChanged: UserId: ${user?.uid}, DisplayName: ${user?.displayName}",
+      );
       if (mounted) {
         setState(() {
           _currentUser = user;
@@ -73,6 +81,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       }
     });
     _initLocationFlow();
+    if (widget.employeeData != null) {
+      employeeId = widget.employeeData!['id'].toString();
+      employeeName = widget.employeeData!['empName'];
+    }
   }
 
   @override
@@ -164,7 +176,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                   ),
                 const SizedBox(height: 16),
                 Text(
-                  "Good Day, ${_currentUser?.displayName ?? (_currentUser != null ? _currentUser?.email : 'Guest')}",
+                  "Good Day, $employeeName",
+                  // "Good Day, ${_currentUser?.displayName ?? (_currentUser != null ? _currentUser?.email : 'Guest')}",
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
@@ -172,7 +185,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  _currentUser?.email ?? "Not Logged In",
+                  _currentUser?.email ?? "Not Logged In (G-Auth)",
                   style: const TextStyle(fontSize: 16, color: Colors.grey),
                 ),
                 const SizedBox(height: 20),
@@ -184,8 +197,68 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 const SizedBox(height: 20),
                 ElevatedButton(
                   onPressed: _initLocationFlow,
-                  child: const Text("Retry Location Check"),
+                  child: const Text("Re-Check Location"),
                 ),
+                ElevatedButton(
+                  onPressed: _markAttendance,
+                  child: const Text("Mark Attendance"),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  "Available Locations:",
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.tealAccent,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                geoFences.isEmpty
+                    ? const Text(
+                        "No geofences defined.",
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      )
+                    : SizedBox(
+                        height: 300,
+                          child: ListView.separated(
+                            padding: EdgeInsets.zero,
+                            shrinkWrap:
+                                true,
+                            itemCount: geoFences.length,
+                            itemBuilder: (BuildContext context, int index) {
+                              final fence = geoFences[index];
+                              return ListTile(
+                                leading: Icon(
+                                  Icons.location_pin,
+                                  color: Colors.tealAccent.withOpacity(0.8),
+                                  size: 28,
+                                ),
+                                title: Text(
+                                  fence.name,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  "Lat: ${fence.latitude.toStringAsFixed(4)}, Lon: ${fence.longitude.toStringAsFixed(4)}",
+                                  style: TextStyle(color: Colors.white60, fontSize: 12),
+                                ),
+                              );
+                            },
+                            separatorBuilder:
+                                (BuildContext context, int index) {
+                                  return Divider(
+                                    color: Colors.teal.withOpacity(0.3),
+                                    indent: 16,
+                                    endIndent: 16,
+                                  );
+                                },
+                          ),
+                        ),
               ],
             ),
           ),
@@ -251,6 +324,62 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _markAttendance() async {
+    if (widget.employeeData == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("No employee data found")));
+      return;
+    }
+
+    final supaBase = Supabase.instance.client;
+
+    try {
+      final empId = widget.employeeData!['id'];
+      final empName = widget.employeeData!['empName'];
+      final phone = widget.employeeData!['mobileNumber'];
+
+      final data = {
+        'empId': empId,
+        'mobileNumber': phone,
+        'dateTime': DateTime.now().toIso8601String(),
+      };
+
+      final response = await supaBase.from('Attendance').insert(data).select();
+
+      if (response != null) {
+        showDialog(
+          context: context,
+          builder: (BuildContext dialogContext) {
+            // Changed context name to avoid conflict
+            return AlertDialog(
+              title: const Text('Success'),
+              content: const Text('Attendance recorded successfully!'),
+              actions: <Widget>[
+                TextButton(
+                  child: const Text('OK'),
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop(); // Dismiss the dialog
+                  },
+                ),
+              ],
+            );
+          },
+        );
+      }
+
+      print("Insert response: $response");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Attendance marked successfully")));
+    } catch (e) {
+      print("Error marking attendance: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error marking attendance: $e")));
+    }
+  }
+
   Future<bool> checkLocationAndPermission(BuildContext context) async {
     bool locationEnabled = await Geolocator.isLocationServiceEnabled();
     if (!locationEnabled) {
@@ -293,7 +422,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
-                  Geolocator.openAppSettings(); // open settings manually
+                  Geolocator.openAppSettings();
                 },
                 child: const Text("Open App Settings"),
               ),
