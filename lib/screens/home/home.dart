@@ -26,6 +26,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   Position? _currentPosition;
   String? employeeId;
   String? employeeName;
+  Geofence? _currentGeofence;
 
   List<Geofence> geoFences = [
     Geofence(
@@ -105,22 +106,53 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   void _checkUserGeoFences(Position userPosition) {
-    bool found = false;
+    Geofence? foundFence;
     for (var fence in geoFences) {
       if (isInsideGeofence(userPosition, fence)) {
-        setState(() {
-          _statusMessage =
-              "You're in ${fence.name} \n Lat: ${fence.latitude} \n Lon: ${fence.longitude}";
-        });
-        found = true;
+        foundFence = fence;
         break;
       }
     }
 
-    if (!found) {
+    if (mounted) {
       setState(() {
-        _statusMessage = "You're not in any GeoFence";
+        _currentGeofence = foundFence;
+        if (foundFence != null) {
+          _statusMessage =
+              "You're in ${foundFence.name} \n Lat: ${foundFence.latitude} \n Lon: ${foundFence.longitude}";
+        } else {
+          _statusMessage = "You're not in any GeoFence";
+        }
       });
+    }
+  }
+
+  void _sortGeoFencesByDistance() {
+    if (_currentPosition == null) {
+      print("User location not available to sort geofences.");
+      return;
+    }
+
+    geoFences.sort((a, b) {
+      double distanceToA = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        a.latitude,
+        a.longitude,
+      );
+
+      double distanceToB = Geolocator.distanceBetween(
+        _currentPosition!.latitude,
+        _currentPosition!.longitude,
+        b.latitude,
+        b.longitude,
+      );
+
+      return distanceToA.compareTo(distanceToB);
+    });
+
+    if (mounted) {
+      setState(() {});
     }
   }
 
@@ -223,42 +255,43 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                       )
                     : SizedBox(
                         height: 300,
-                          child: ListView.separated(
-                            padding: EdgeInsets.zero,
-                            shrinkWrap:
-                                true,
-                            itemCount: geoFences.length,
-                            itemBuilder: (BuildContext context, int index) {
-                              final fence = geoFences[index];
-                              return ListTile(
-                                leading: Icon(
-                                  Icons.location_pin,
-                                  color: Colors.tealAccent.withOpacity(0.8),
-                                  size: 28,
+                        child: ListView.separated(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          itemCount: geoFences.length,
+                          itemBuilder: (BuildContext context, int index) {
+                            final fence = geoFences[index];
+                            return ListTile(
+                              leading: Icon(
+                                Icons.location_pin,
+                                color: Colors.tealAccent.withOpacity(0.8),
+                                size: 28,
+                              ),
+                              title: Text(
+                                fence.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
                                 ),
-                                title: Text(
-                                  fence.name,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                              ),
+                              subtitle: Text(
+                                "Lat: ${fence.latitude.toStringAsFixed(4)}, Lon: ${fence.longitude.toStringAsFixed(4)}",
+                                style: TextStyle(
+                                  color: Colors.white60,
+                                  fontSize: 12,
                                 ),
-                                subtitle: Text(
-                                  "Lat: ${fence.latitude.toStringAsFixed(4)}, Lon: ${fence.longitude.toStringAsFixed(4)}",
-                                  style: TextStyle(color: Colors.white60, fontSize: 12),
-                                ),
-                              );
-                            },
-                            separatorBuilder:
-                                (BuildContext context, int index) {
-                                  return Divider(
-                                    color: Colors.teal.withOpacity(0.3),
-                                    indent: 16,
-                                    endIndent: 16,
-                                  );
-                                },
-                          ),
+                              ),
+                            );
+                          },
+                          separatorBuilder: (BuildContext context, int index) {
+                            return Divider(
+                              color: Colors.teal.withOpacity(0.3),
+                              indent: 16,
+                              endIndent: 16,
+                            );
+                          },
                         ),
+                      ),
               ],
             ),
           ),
@@ -305,12 +338,15 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         timeLimit: const Duration(seconds: 10),
       );
 
-      setState(() {
-        _currentPosition = position;
-        _statusMessage = 'Location acquired';
-      });
+      if (mounted) {
+        setState(() {
+          _currentPosition = position;
+          _statusMessage = 'Location acquired, checking geofences...';
+        });
+      }
 
       _checkUserGeoFences(position);
+      _sortGeoFencesByDistance();
 
       print("Current Position: ${position.latitude}, ${position.longitude}");
     } on TimeoutException {
@@ -318,9 +354,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         _statusMessage = 'Error: Location fetch timed out';
       });
     } catch (e) {
-      setState(() {
-        _statusMessage = 'Error fetching location: ${e.toString()}';
-      });
+      if (mounted) {
+        setState(() {
+          _statusMessage = 'Error fetching location: ${e.toString()}';
+          _currentGeofence = null;
+        });
+      }
+      print('Error in _initLocationFlow: $e');
     }
   }
 
@@ -343,6 +383,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         'empId': empId,
         'mobileNumber': phone,
         'dateTime': DateTime.now().toIso8601String(),
+
+        'geofenceName': _currentGeofence!.name,
+        // 'coordinates': "${_currentGeofence!.latitude + _currentGeofence!.longitude}",
       };
 
       final response = await supaBase.from('Attendance').insert(data).select();
