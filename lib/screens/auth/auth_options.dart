@@ -36,7 +36,7 @@ class LoginOptionsPage extends StatelessWidget {
                 // const SizedBox(height: 48),
 
                 const Text(
-                  'Choose Your Login Method',
+                  'Available Login Methods:',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 26,
@@ -46,28 +46,27 @@ class LoginOptionsPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 40),
 
-                // Option 1: Login with Organization Email ID
-                ElevatedButton.icon(
-                  icon: const Icon(Icons.email_outlined, color: Colors.white70),
-                  label: const Text(
-                    'Login with Organization Email',
-                    style: TextStyle(fontSize: 16, color: Colors.white),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.teal.shade700,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const EmailLoginPage()));
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Email Login Tapped')),
-                    );
-                  },
-                ),
-                const SizedBox(height: 20),
+                // ElevatedButton.icon(
+                //   icon: const Icon(Icons.email_outlined, color: Colors.white70),
+                //   label: const Text(
+                //     'Login with Organization Email',
+                //     style: TextStyle(fontSize: 16, color: Colors.white),
+                //   ),
+                //   style: ElevatedButton.styleFrom(
+                //     backgroundColor: Colors.teal.shade700,
+                //     padding: const EdgeInsets.symmetric(vertical: 16),
+                //     shape: RoundedRectangleBorder(
+                //       borderRadius: BorderRadius.circular(12),
+                //     ),
+                //   ),
+                //   onPressed: () {
+                //     Navigator.push(context, MaterialPageRoute(builder: (context) => const EmailLoginPage()));
+                //     ScaffoldMessenger.of(context).showSnackBar(
+                //       const SnackBar(content: Text('Email Login Tapped')),
+                //     );
+                //   },
+                // ),
+                // const SizedBox(height: 20),
 
                 // Option 2: Login with Mobile Number
                 ElevatedButton.icon(
