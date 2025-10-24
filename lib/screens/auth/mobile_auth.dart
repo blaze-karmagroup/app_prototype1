@@ -1,7 +1,10 @@
 // lib/auth/mobile_login_page.dart
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:test7/screens/auth/org_email_auth.dart';
 import 'package:test7/screens/home/home.dart';
 
@@ -14,8 +17,8 @@ class MobileLoginPage extends StatefulWidget {
 
 class _MobileLoginPageState extends State<MobileLoginPage> {
   final TextEditingController _mobileController = TextEditingController();
-  List<Map<String, dynamic>> employees = [];
-
+  Map<String, dynamic> _fetchedUser = {};
+  String _fetchedUserName = '';
   bool isLoading = false;
 
   @override
@@ -24,19 +27,194 @@ class _MobileLoginPageState extends State<MobileLoginPage> {
     super.dispose();
   }
 
-  Future<void> _fetchEmployees() async {
+  Future<void> _verifyMobileAndSendOtp() async {
+    String mobileNumber = _mobileController.text.trim();
+    String formattedMobileNumber = "+91$mobileNumber";
+
+    if (mobileNumber.length != 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Mobile number not 10 digits')),
+      );
+      return;
+    }
+
+    print("Checking for $formattedMobileNumber through API...");
     setState(() => isLoading = true);
-    return null;
+
+    try {
+      final fetchUserUrl = Uri.parse(
+        'http://192.168.10.128:8080/employee?mobile=+$mobileNumber',
+      );
+      print('Calling: $fetchUserUrl');
+
+      final response = await http
+          .get(fetchUserUrl)
+          .timeout(const Duration(seconds: 5));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        Map<String, dynamic> employee = jsonDecode(response.body);
+        print("Fetched employee: $employee");
+        setState(() {
+          _fetchedUser = employee;
+          _fetchedUserName = employee['Employee_Name'].toString();
+        });
+
+        final vasudevResponse = await http.post(
+          Uri.parse('http://192.168.10.128:8080/send-otp'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'phoneNumber': mobileNumber}),
+        );
+
+        if (!mounted) return;
+        setState(() => isLoading = false);
+
+        if (vasudevResponse.statusCode == 200) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("OTP sent successfully")),
+          );
+
+          _showOtpDialog(phoneNumber: mobileNumber);
+        } else {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text("Failed to send OTP.")));
+        }
+      } else {
+        setState(() => isLoading = false);
+        print("Error fetching user: ${response.statusCode}");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("This mobile number is not registered."),
+          ),
+        );
+      }
+    } catch (e) {
+      print("_fetchMobileFromDb Error: $e");
+      setState(() => isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("An error occurred. Check your network.")),
+      );
+    }
   }
 
-  void _authenticateUsingMobileNumber() {
-    // Navigator.push(context, MaterialPageRoute(builder: (context) => const MyHomePage(title: 'Logged in - Mobile no')));
-    String mobileNumber = _mobileController.text;
+  void _showOtpDialog({required String phoneNumber}) {
+    TextEditingController _otpController = TextEditingController();
 
-    print('Mobile Number: $mobileNumber');
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            bool isDialogLoading = false;
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Processing Mobile Number: $mobileNumber')),
+            Future<void> _verifyOtp() async {
+              final otp = _otpController.text.trim();
+              print('Entered OTP: $otp');
+
+              if (_otpController.text.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('OTP field empty')),
+                );
+                return;
+              }
+
+              setDialogState(() => isDialogLoading = true);
+
+              print("Authenticating with mobile and otp credentials");
+
+              try {
+                final vasudevResponse = await http.post(
+                  Uri.parse('http://192.168.10.128:8080/verify-otp'),
+                  headers: {'Content-Type': 'application/json'},
+                  body: jsonEncode({'phoneNumber': phoneNumber, 'otp': otp}),
+                );
+
+                if (!mounted) return;
+
+                if (vasudevResponse.statusCode == 200) {
+                  final data = jsonDecode(vasudevResponse.body);
+                  final customToken = data['token'];
+
+                  await FirebaseAuth.instance.signInWithCustomToken(
+                    customToken,
+                  );
+                  if (!mounted) return;
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Authentication successful.')),
+                  );
+
+                  setDialogState(() => isDialogLoading = false);
+
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => MyHomePage(
+                        title: "Auth success",
+                        employee: _fetchedUser,
+                      ),
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('Invalid OTP.')));
+                }
+              } catch (e) {
+                print("Verify OTP error: $e");
+              }
+              setDialogState(() => isDialogLoading = false);
+            }
+
+            return AlertDialog(
+              title: Text('Enter OTP'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Hello $_fetchedUserName, a 6 digit OTP has been sent to your mobile number.',
+                  ),
+                  TextField(
+                    controller: _otpController,
+                    decoration: InputDecoration(hintText: 'Enter the OTP'),
+                  ),
+                ],
+              ),
+              actions: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextButton(
+                      onPressed: () {
+                        _verifyOtp();
+                      },
+                      child: isDialogLoading
+                          ? const CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                              padding: EdgeInsets.only(left: 14),
+                              constraints: BoxConstraints(
+                                minHeight: 16,
+                                minWidth: 16,
+                              ),
+                            )
+                          : Text('Confirm OTP'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      child: Text('Not $_fetchedUserName? Contact Admin'),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -53,7 +231,7 @@ class _MobileLoginPageState extends State<MobileLoginPage> {
         ),
         actions: [
           IconButton(
-            onPressed: (){},
+            onPressed: () {},
             icon: const Icon(Icons.refresh),
             tooltip: 'Fetch Employees',
           ),
@@ -165,11 +343,21 @@ class _MobileLoginPageState extends State<MobileLoginPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    onPressed: (){},
-                    child: const Text(
-                      'Send OTP',
-                      style: TextStyle(color: Colors.black87),
-                    ),
+                    onPressed: _verifyMobileAndSendOtp,
+                    child: isLoading
+                        ? const CircularProgressIndicator(
+                            color: Colors.white,
+                            strokeWidth: 2,
+                            padding: EdgeInsets.only(left: 14),
+                            constraints: BoxConstraints(
+                              minHeight: 16,
+                              minWidth: 16,
+                            ),
+                          )
+                        : Text(
+                            'Send OTP',
+                            style: TextStyle(color: Colors.black87),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 20),

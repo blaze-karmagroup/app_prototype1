@@ -1,27 +1,28 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:test7/screens/home/widgets/map_view.dart';
-
 import '../../models/geofence.dart';
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
+  const MyHomePage({super.key, required this.title, this.employee});
 
   final String title;
+  final Map<String, dynamic>? employee;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
-  // final user = FirebaseAuth.instance.currentUser;
-  User? _currentUser;
   StreamSubscription<User?>? _authStateSubscription;
   String _statusMessage = 'Checking Location...';
   Position? _currentPosition;
+  String? employeeName;
 
   List<Geofence> geoFences = [
     Geofence(
@@ -66,12 +67,10 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     super.initState();
     _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((User? user) {
       print("MyHomePage AuthStateChanged: UserId: ${user?.uid}, DisplayName: ${user?.displayName}");
-      if (mounted) {
-        setState(() {
-          _currentUser = user;
-        });
-      }
     });
+
+    employeeName = widget.employee?['Employee_Name'].toString();
+    _fetchFromApi();
     _initLocationFlow();
   }
 
@@ -125,7 +124,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         centerTitle: true,
         actions: [
           IconButton(
-            onPressed: _initLocationFlow,
+            onPressed: _fetchFromApi,
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
@@ -157,24 +156,19 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 //   userLatitude: _currentPosition?.latitude,
                 //   userLongitude: _currentPosition?.longitude,
                 // ),
-                if (_currentUser?.photoURL != null)
-                  CircleAvatar(
-                    radius: 40,
-                    backgroundImage: NetworkImage(_currentUser!.photoURL!),
-                  ),
                 const SizedBox(height: 16),
                 Text(
-                  "Good Day, ${_currentUser?.displayName ?? (_currentUser != null ? _currentUser?.email : 'Guest')}",
+                  "Good Day, ${widget.employee != null ? employeeName : 'Guest'}",
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  _currentUser?.email ?? "Not Logged In",
-                  style: const TextStyle(fontSize: 16, color: Colors.grey),
-                ),
+                // Text(
+                //   _currentUser?.email ?? "Not Logged In",
+                //   style: const TextStyle(fontSize: 16, color: Colors.grey),
+                // ),
                 const SizedBox(height: 20),
                 Text(
                   _statusMessage,
@@ -208,6 +202,32 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     print("User is not in any GeoFence");
   }
    */
+
+  Future<void> _fetchFromApi() async {
+    print("Attempting to fetch from API...");
+
+    final url = Uri.parse('http://192.168.10.128:8080/employees');
+    print('Calling Api from: $url');
+
+    try{
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+      if(response.statusCode == 200){
+        List<dynamic> employees = jsonDecode(response.body);
+        print("Fetched employees: $employees");
+
+        if(mounted){
+          setState(() {
+            _statusMessage = "First employee is: ${employees.first['FirstName']}";
+          });
+        }
+      } else {
+        print("Error: ${response.statusCode}");
+        if(mounted) setState(() => _statusMessage = "Server Error: ${response.statusCode}");
+      }
+    } catch (e){
+      print("_fetchFromApi Error: $e");
+    }
+  }
 
   Future<void> _initLocationFlow() async {
     bool ready = await checkLocationAndPermission(context);

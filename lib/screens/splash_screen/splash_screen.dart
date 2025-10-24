@@ -23,7 +23,7 @@ class _SplashScreenState extends State<SplashScreen> {
       if (user != null) {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => const MyHomePage(title: "Already logged In"),
+            builder: (_) => const MyHomePage(title: "Logged In (Last 1hr)"),
           ),
         );
       } else {
