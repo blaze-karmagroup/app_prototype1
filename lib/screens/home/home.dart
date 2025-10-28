@@ -32,10 +32,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
-
-    // employeeName = widget.employee?['Employee_Name'].toString();
-    _fetchUserFromApi();
     _initLocationFlow();
+    _fetchUserFromApi();
   }
 
   @override
@@ -54,9 +52,17 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     return distanceBetween <= geofence.radius;
   }
 
-  void _checkUserGeoFences(Position userPosition) {
+  void _checkUserGeoFences(Position userPosition, List<Geofence> geofences) {
+    if (geofences.isEmpty) {
+      setState(() {
+        _statusMessage = "No geofences have been assigned to you.";
+        _currentGeofence = null;
+      });
+      return;
+    }
+
     Geofence? foundFence;
-    for (var fence in geoFences) {
+    for (var fence in geofences) {
       if (isInsideGeofence(userPosition, fence)) {
         foundFence = fence;
         break;
@@ -74,7 +80,11 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
               ),
             ),
           );
+          _statusMessage =
+              "You're in ${foundFence.name} \n Lat: ${foundFence.latitude} \n Lon: ${foundFence.longitude}";
         } else {
+          _statusMessage = "You are not inside any designated area.";
+          _currentGeofence = null;
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(SnackBar(content: Text("You're not in any GeoFence")));
@@ -180,7 +190,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: Colors.white.withOpacity(0.2),
-                          ), // Subtle border
+                          ),
                         ),
                         child: geoFences.isEmpty
                             ? const Center(
@@ -215,21 +225,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       ),
     );
   }
-
-  /*
-  Future<void> checkUserGeoFences(
-    Position userPosition,
-    List<Geofence> geoFences,
-  ) async {
-    for (var fence in geoFences) {
-      if (isInsideGeofence(userPosition, fence)) {
-        print("User is in ${fence.name}");
-        return;
-      }
-    }
-    print("User is not in any GeoFence");
-  }
-   */
 
   Future<void> _fetchUserFromApi() async {
     setState(() => _isLoading = true);
@@ -320,11 +315,18 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
       setState(() {
         _currentPosition = position;
-        _statusMessage = 'Location acquired';
+        _statusMessage = 'Location acquired...';
       });
 
-      _checkUserGeoFences(position);
-      _fetchAssignedGeofences();
+      final List<Geofence>? fetchedGeofences = await _fetchAssignedGeofences();
+
+      if (fetchedGeofences != null) {
+        _checkUserGeoFences(position, fetchedGeofences);
+      } else {
+        setState(() {
+          _statusMessage = "Could not load geofence data from server.";
+        });
+      }
 
       print("Current Position: ${position.latitude}, ${position.longitude}");
     } on TimeoutException {
@@ -403,11 +405,20 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       if (!mounted) return;
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        print("Attendance recorded successfully");
+        print("Current location attendance recorded successfully");
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Attendance recorded successfully")),
+          const SnackBar(
+            content: Text("Current location attendance recorded successfully"),
+          ),
         );
-        _attendanceMarked = true;
+        setState(() => _attendanceMarked = true);
+
+        Future.delayed(const Duration(hours: 2), () {
+          print('Enabling mark attendance button after 2 hours...');
+          if (mounted) {
+            setState(() => _attendanceMarked = false);
+          }
+        });
       } else {
         print('Failed to record attendance: ${response.statusCode}');
         ScaffoldMessenger.of(context).showSnackBar(
@@ -424,7 +435,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _fetchAssignedGeofences() async {
+  Future<List<Geofence>?> _fetchAssignedGeofences() async {
     // final userToken = FirebaseAuth.instance.currentUser;
     // print('Fetched User Token: $userToken');
     //
@@ -454,8 +465,6 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       print('Calling Api from: $url');
       final response = await http.get(url).timeout(const Duration(seconds: 5));
 
-      if (!mounted) return;
-
       if (response.statusCode == 200) {
         final List<dynamic> geofenceData = jsonDecode(response.body);
 
@@ -467,7 +476,8 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           geoFences = fetchedGeofences;
         });
 
-        print("Fetched geofences: $geofenceData");
+        print("Fetched geofences: $fetchedGeofences");
+        return fetchedGeofences;
       }
     } catch (e) {
       print("_fetchAssignedGeofences Error: $e");
@@ -475,6 +485,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         const SnackBar(content: Text("Error fetching geofences.")),
       );
     }
+    return null;
   }
 
   Future<bool> checkLocationAndPermission(BuildContext context) async {
