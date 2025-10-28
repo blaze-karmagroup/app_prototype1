@@ -9,74 +9,37 @@ import 'package:test7/screens/home/widgets/map_view.dart';
 import '../../models/geofence.dart';
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title, this.employee});
+  const MyHomePage({super.key, required this.title});
 
   final String title;
-  final Map<String, dynamic>? employee;
+  // final Map<String, dynamic>? employee;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
-  StreamSubscription<User?>? _authStateSubscription;
   String _statusMessage = 'Checking Location...';
+  String _authStatusMessage = '';
   Position? _currentPosition;
-  String? employeeName;
+  Map<String, dynamic>? _currentEmployee;
+  bool _isLoading = false;
+  Geofence? _currentGeofence;
+  bool _attendanceMarked = false;
 
-  List<Geofence> geoFences = [
-    Geofence(
-      id: "1",
-      name: "Car Parking",
-      latitude: 15.175448,
-      longitude: 73.949296,
-      radius: 10,
-    ),
-    Geofence(
-      id: "2",
-      name: "Slide Pool",
-      latitude: 15.175858,
-      longitude: 73.948252,
-      radius: 10,
-    ),
-    Geofence(
-      id: "3",
-      name: "Splash Bar",
-      latitude: 15.175573,
-      longitude: 73.948259,
-      radius: 10,
-    ),
-    Geofence(
-      id: "4",
-      name: "Restaurant",
-      latitude: 15.175269,
-      longitude: 73.948058,
-      radius: 10,
-    ),
-    Geofence(
-      id: "5",
-      name: "Time Office",
-      latitude: 15.175058,
-      longitude: 73.947809,
-      radius: 10,
-    ),
-  ];
+  List<Geofence> geoFences = [];
 
   @override
   void initState() {
     super.initState();
-    _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen((User? user) {
-      print("MyHomePage AuthStateChanged: UserId: ${user?.uid}, DisplayName: ${user?.displayName}");
-    });
 
-    employeeName = widget.employee?['Employee_Name'].toString();
-    _fetchFromApi();
+    // employeeName = widget.employee?['Employee_Name'].toString();
+    _fetchUserFromApi();
     _initLocationFlow();
   }
 
   @override
   void dispose() {
-    _authStateSubscription?.cancel();
     super.dispose();
   }
 
@@ -92,21 +55,30 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
 
   void _checkUserGeoFences(Position userPosition) {
-    bool found = false;
+    Geofence? foundFence;
     for (var fence in geoFences) {
       if (isInsideGeofence(userPosition, fence)) {
-        setState(() {
-          _statusMessage =
-              "You're in ${fence.name} \n Lat: ${fence.latitude} \n Lon: ${fence.longitude}";
-        });
-        found = true;
+        foundFence = fence;
         break;
       }
     }
 
-    if (!found) {
+    if (mounted) {
       setState(() {
-        _statusMessage = "You're not in any GeoFence";
+        _currentGeofence = foundFence;
+        if (foundFence != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                "You're in ${foundFence.name} \n Lat: ${foundFence.latitude} \n Lon: ${foundFence.longitude}",
+              ),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("You're not in any GeoFence")));
+        }
       });
     }
   }
@@ -124,7 +96,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
         centerTitle: true,
         actions: [
           IconButton(
-            onPressed: _fetchFromApi,
+            onPressed: _fetchAssignedGeofences,
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
           ),
@@ -147,42 +119,98 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
           ),
         ),
         child: Center(
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: <Widget>[
-                // GeofenceMap(
-                //   geoFences: geoFences,
-                //   userLatitude: _currentPosition?.latitude,
-                //   userLongitude: _currentPosition?.longitude,
-                // ),
-                const SizedBox(height: 16),
-                Text(
-                  "Good Day, ${widget.employee != null ? employeeName : 'Guest'}",
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+          child: _isLoading
+              ? const CircularProgressIndicator(color: Colors.white)
+              : SingleChildScrollView(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: <Widget>[
+                      // GeofenceMap(
+                      //   geoFences: geoFences,
+                      //   userLatitude: _currentPosition?.latitude,
+                      //   userLongitude: _currentPosition?.longitude,
+                      // ),
+                      const SizedBox(height: 16),
+                      Text(
+                        "Good Day, ${_currentEmployee?['Employee_Name'] ?? 'Guest'}",
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // Text(
+                      //   _currentUser?.email ?? "Not Logged In",
+                      //   style: const TextStyle(fontSize: 16, color: Colors.grey),
+                      // ),
+                      const SizedBox(height: 20),
+                      Text(
+                        _statusMessage,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      Text(
+                        _authStatusMessage,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          color: Color(0xFFFF8F00),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: _initLocationFlow,
+                        child: const Text("Retry Location Check"),
+                      ),
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: _attendanceMarked ? null : _recordAttendance,
+                        child: const Text("Record Attendance"),
+                      ),
+                      const SizedBox(height: 16),
+
+                      Container(
+                        height: 200,
+                        margin: const EdgeInsets.symmetric(horizontal: 20),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.2),
+                          ), // Subtle border
+                        ),
+                        child: geoFences.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  "Geofences assigned to you will be shown here...",
+                                  style: TextStyle(
+                                    color: Colors.grey,
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              )
+                            : ListView.builder(
+                                padding: EdgeInsets.symmetric(vertical: 4),
+                                itemCount: geoFences.length,
+                                itemBuilder: (BuildContext context, int index) {
+                                  final fence = geoFences[index];
+
+                                  return ListTile(
+                                    visualDensity: VisualDensity.compact,
+                                    title: Text(fence.name),
+                                    subtitle: Text(
+                                      "Lat: ${fence.latitude}, Lon: ${fence.longitude}",
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 8),
-                // Text(
-                //   _currentUser?.email ?? "Not Logged In",
-                //   style: const TextStyle(fontSize: 16, color: Colors.grey),
-                // ),
-                const SizedBox(height: 20),
-                Text(
-                  _statusMessage,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 18, color: Colors.white70),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: _initLocationFlow,
-                  child: const Text("Retry Location Check"),
-                ),
-              ],
-            ),
-          ),
         ),
       ),
     );
@@ -203,36 +231,75 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   }
    */
 
-  Future<void> _fetchFromApi() async {
-    print("Attempting to fetch from API...");
+  Future<void> _fetchUserFromApi() async {
+    setState(() => _isLoading = true);
+    final userToken = FirebaseAuth.instance.currentUser;
+    print('Fetched User Token: $userToken');
 
-    final url = Uri.parse('http://192.168.10.128:8080/employees');
+    if (userToken == null || userToken.uid.isEmpty) {
+      print("User not logged in or phone number is missing from token.");
+      if (mounted) {
+        setState(() {
+          _authStatusMessage = "Could not verify user.";
+          _isLoading = false;
+        });
+      }
+      return;
+    }
+
+    String rawUid = userToken.uid;
+    String? userPhoneNumber;
+
+    print('Logged in user phone: $userPhoneNumber');
+
+    if (rawUid.startsWith("phone_")) {
+      userPhoneNumber = rawUid.substring(6);
+    } else {
+      print("UID does not have the 'phone_' prefix. Using raw UID.");
+      userPhoneNumber = rawUid;
+    }
+
+    print("Attempting to fetch $userPhoneNumber from API...");
+
+    final url = Uri.parse(
+      'http://192.168.10.128:8080/employee?mobile=+$userPhoneNumber',
+    );
     print('Calling Api from: $url');
 
-    try{
+    try {
       final response = await http.get(url).timeout(const Duration(seconds: 5));
-      if(response.statusCode == 200){
-        List<dynamic> employees = jsonDecode(response.body);
-        print("Fetched employees: $employees");
 
-        if(mounted){
-          setState(() {
-            _statusMessage = "First employee is: ${employees.first['FirstName']}";
-          });
-        }
+      if (!mounted) return;
+
+      print("Response Status Code: ${response.statusCode}");
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> employee = jsonDecode(response.body);
+        print("Fetched employee: $employee");
+        setState(() {
+          _currentEmployee = employee;
+          _isLoading = false;
+        });
       } else {
         print("Error: ${response.statusCode}");
-        if(mounted) setState(() => _statusMessage = "Server Error: ${response.statusCode}");
+        if (mounted) {
+          setState(() {
+            _authStatusMessage = "Server Error: ${response.statusCode}";
+            _isLoading = false;
+          });
+        }
       }
-    } catch (e){
-      print("_fetchFromApi Error: $e");
+    } catch (e) {
+      print("_fetchUserFromApi Error: $e");
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   Future<void> _initLocationFlow() async {
     bool ready = await checkLocationAndPermission(context);
     setState(() {
-      _statusMessage = 'Location check failed (permissions or GPS off)';
+      _statusMessage = 'Initializing Location Flow...';
     });
     if (!ready) {
       setState(() {
@@ -243,8 +310,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
 
     try {
       LocationSettings settings = const LocationSettings(
-        accuracy: LocationAccuracy
-            .high, // distanceFilter: 0, // optional: only if you want to restrict updates
+        accuracy: LocationAccuracy.high,
       );
 
       Position position = await Geolocator.getCurrentPosition(
@@ -258,6 +324,7 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       });
 
       _checkUserGeoFences(position);
+      _fetchAssignedGeofences();
 
       print("Current Position: ${position.latitude}, ${position.longitude}");
     } on TimeoutException {
@@ -268,6 +335,145 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
       setState(() {
         _statusMessage = 'Error fetching location: ${e.toString()}';
       });
+    }
+  }
+
+  Future<void> _recordAttendance() async {
+    if (_currentEmployee == null) {
+      print("User not logged in or token not found.");
+      if (mounted) {
+        setState(() {
+          _authStatusMessage =
+              "_recordAttendance error: Could not verify user.";
+        });
+      }
+      return;
+    }
+
+    if (_currentGeofence == null) {
+      print("Cannot record attendance: Not inside any geofence.");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Attendance can only be marked inside a designated area.",
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (_currentPosition == null) {
+      print("Cannot record attendance: Current location is unknown.");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Could not determine your current location."),
+        ),
+      );
+      return;
+    }
+
+    print("Attempting to insert user attendance through API...");
+
+    final Map<String, dynamic> attendanceData = {
+      'Employee_ID': _currentEmployee!['Employee_ID'],
+      'Employee_Name': _currentEmployee!['Employee_Name'],
+      'Date_Time': DateTime.now().toIso8601String(),
+      'Mobile_no': _currentEmployee!['Mobile_no'],
+      'Geofence_Name': _currentGeofence!.name,
+      'Coordinates': {
+        'lat': _currentPosition!.latitude,
+        'lon': _currentPosition!.longitude,
+      },
+    };
+
+    print('Attendance Data: $attendanceData');
+
+    try {
+      final url = Uri.parse('http://192.168.10.128:8080/record-attendance');
+      print('Calling Api from: $url');
+
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(attendanceData),
+          )
+          .timeout(const Duration(seconds: 5));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print("Attendance recorded successfully");
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Attendance recorded successfully")),
+        );
+        _attendanceMarked = true;
+      } else {
+        print('Failed to record attendance: ${response.statusCode}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Failed to record attendance")),
+        );
+      }
+    } catch (e) {
+      print("_recordAttendance Error: $e");
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error in _recordAttendance: $e")));
+    }
+  }
+
+  Future<void> _fetchAssignedGeofences() async {
+    // final userToken = FirebaseAuth.instance.currentUser;
+    // print('Fetched User Token: $userToken');
+    //
+    // if (userToken == null || userToken.uid.isEmpty) {
+    //   print("User not logged in or phone number is missing from token.");
+    //   if (mounted) {
+    //     setState(() {
+    //       _authStatusMessage = "Could not verify user.";
+    //       _isLoading = false;
+    //     });
+    //   }
+    //   return;
+    // }
+    //
+    // String rawUid = userToken.uid;
+    // String? userPhoneNumber;
+    //
+    // if (rawUid.startsWith("phone_")) {
+    //   userPhoneNumber = rawUid.substring(6);
+    // } else {
+    //   print("UID does not have the 'phone_' prefix. Using raw UID.");
+    //   userPhoneNumber = rawUid;
+    // }
+
+    try {
+      final url = Uri.parse('http://192.168.10.128:8080/geofences');
+      print('Calling Api from: $url');
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+
+      if (!mounted) return;
+
+      if (response.statusCode == 200) {
+        final List<dynamic> geofenceData = jsonDecode(response.body);
+
+        final List<Geofence> fetchedGeofences = geofenceData
+            .map((item) => Geofence.fromJson(item))
+            .toList();
+
+        setState(() {
+          geoFences = fetchedGeofences;
+        });
+
+        print("Fetched geofences: $geofenceData");
+      }
+    } catch (e) {
+      print("_fetchAssignedGeofences Error: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Error fetching geofences.")),
+      );
     }
   }
 

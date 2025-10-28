@@ -153,7 +153,6 @@ class _MobileLoginPageState extends State<MobileLoginPage> {
                     MaterialPageRoute(
                       builder: (context) => MyHomePage(
                         title: "Auth success",
-                        employee: _fetchedUser,
                       ),
                     ),
                   );

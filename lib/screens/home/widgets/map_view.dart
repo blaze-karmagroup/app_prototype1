@@ -46,7 +46,7 @@ class _GeofenceMapState extends State<GeofenceMap> {
       return Circle(
         circleId: CircleId(geofence.id),
         center: LatLng(geofence.latitude, geofence.longitude),
-        radius: geofence.radius,
+        radius: geofence.radius.toDouble(),
         fillColor: Colors.blue.withOpacity(0.2),
         strokeColor: Colors.blue.withOpacity(0.7),
         strokeWidth: 2,
